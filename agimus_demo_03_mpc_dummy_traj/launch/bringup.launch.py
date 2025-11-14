@@ -33,10 +33,13 @@ def launch_setup(
         == "custom_with_collision_avoidance"
     )
 
+    arm_id_str=LaunchConfiguration("arm_id").perform(context)
+
     agimus_controller_yaml = PathJoinSubstitution(
         [
             FindPackageShare("agimus_demo_03_mpc_dummy_traj"),
             "config",
+            arm_id_str,
             "agimus_controller_params.yaml",
         ]
     )
@@ -44,7 +47,7 @@ def launch_setup(
     if use_collision_detection:
         extra_params = {
             "ocp": {
-                "definition_yaml_file": "package://agimus_demo_03_mpc_dummy_traj/config/ocp_definition_file.yaml"
+                "definition_yaml_file": "package://agimus_demo_03_mpc_dummy_traj/config/"+arm_id_str+"/ocp_definition_file.yaml"
             }
         }
     else:
@@ -73,6 +76,7 @@ def launch_setup(
         [
             FindPackageShare("agimus_demo_03_mpc_dummy_traj"),
             "config",
+            arm_id_str,
             "trajectory_weigths_params.yaml",
         ]
     )
@@ -86,8 +90,8 @@ def launch_setup(
             "4",
             "-A",
             "0.2",
-            "fer_joint3",
-            "fer_joint5",
+            arm_id_str+"_joint3",
+            arm_id_str+"_joint5",
         ],
         output="screen",
     )
@@ -117,7 +121,7 @@ def launch_setup(
         parameters=[{"robot_description": environment_description}],
     )
     tf_node = static_transform_publisher_node(
-        frame_id="fer_link0",
+        frame_id=arm_id_str+"_link0",
         child_frame_id="obstacle1",
     )
 

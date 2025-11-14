@@ -24,6 +24,7 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterFile
 
 from controller_manager.launch_utils import (
     generate_controllers_spawner_launch_description,  # noqa: I001
@@ -48,6 +49,8 @@ def launch_setup(
     external_controllers_params = LaunchConfiguration("external_controllers_params")
     external_controllers_names = LaunchConfiguration("external_controllers_names")
     franka_controllers_params = LaunchConfiguration("franka_controllers_params")
+    if franka_controllers_params.perform(context)=="":
+        franka_controllers_params=PathJoinSubstitution([FindPackageShare("agimus_demos_common"),"config","franka",arm_id.perform(context),"controllers.yaml",])
     use_rviz = LaunchConfiguration("use_rviz")
     rviz_config_path = LaunchConfiguration("rviz_config_path")
     use_plotjuggler = LaunchConfiguration("use_plotjuggler")
@@ -177,6 +180,7 @@ def launch_setup(
         ),
     )
 
+
     spawn_external_controllers = generate_controllers_spawner_launch_description(
         deepcopy(external_controllers_names_list),
         controller_params_files=(
@@ -191,7 +195,6 @@ def launch_setup(
         ],
     )
 
-    print("external_controllers_names_list = ", external_controllers_names_list)
     activate_external_controllers = ExecuteProcess(
         cmd=[
             "ros2",
@@ -508,14 +511,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "franka_controllers_params",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("agimus_demos_common"),
-                    "config",
-                    "franka",
-                    "controllers.yaml",
-                ]
-            ),
+            default_value="",
             description="Path to the yaml file use to define controller parameters.",
         ),
         DeclareLaunchArgument(

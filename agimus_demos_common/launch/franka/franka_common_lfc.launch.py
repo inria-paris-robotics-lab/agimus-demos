@@ -24,7 +24,10 @@ def launch_setup(
         "linear_feedback_controller",
         "joint_state_estimator",
     ]
-
+    arm_id=LaunchConfiguration("arm_id")
+    linear_feedback_controller_params = LaunchConfiguration("linear_feedback_controller_params")
+    if linear_feedback_controller_params.perform(context)=="":
+        linear_feedback_controller_params=PathJoinSubstitution([FindPackageShare("agimus_demos_common"),"config","franka",arm_id.perform(context),"linear_feedback_controller_params.yaml",])
     franka_robot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [
@@ -39,15 +42,13 @@ def launch_setup(
             ]
         ),
         launch_arguments={
-            "arm_id": LaunchConfiguration("arm_id"),
+            "arm_id": arm_id,
             "aux_computer_ip": LaunchConfiguration("aux_computer_ip"),
             "aux_computer_user": LaunchConfiguration("aux_computer_user"),
             "on_aux_computer": LaunchConfiguration("on_aux_computer"),
             "robot_ip": LaunchConfiguration("robot_ip"),
             "disable_collision_safety": LaunchConfiguration("disable_collision_safety"),
-            "external_controllers_params": LaunchConfiguration(
-                "linear_feedback_controller_params"
-            ),
+            "external_controllers_params": linear_feedback_controller_params ,
             "external_controllers_names": str(linear_feedback_controllers_names),
             "franka_controllers_params": LaunchConfiguration(
                 "franka_controllers_params"
@@ -69,26 +70,12 @@ def generate_launch_description():
     declared_arguments = [
         DeclareLaunchArgument(
             "franka_controllers_params",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("agimus_demos_common"),
-                    "config",
-                    "franka",
-                    "controllers.yaml",
-                ]
-            ),
+            default_value="", # By default use the controller.yaml in agimus_demos_common/config/franka/${arm_id}
             description="Path to the yaml file use to define controller parameters.",
         ),
         DeclareLaunchArgument(
             "linear_feedback_controller_params",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("agimus_demos_common"),
-                    "config",
-                    "franka",
-                    "linear_feedback_controller_params.yaml",
-                ]
-            ),
+            default_value="", # By default use the linear_feedback_controller_params.yaml in agimus_demos_common/config/franka/${arm_id}
             description="Path to the yaml file use to define "
             + "Linear Feedback Controller's and Joint State Estimator's params.",
         ),

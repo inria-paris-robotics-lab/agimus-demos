@@ -2,7 +2,7 @@ from launch import LaunchContext, LaunchDescription
 from launch.actions import OpaqueFunction, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_entity import LaunchDescriptionEntity
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -17,11 +17,13 @@ def launch_setup(
     context: LaunchContext, *args, **kwargs
 ) -> list[LaunchDescriptionEntity]:
     franka_robot_launch = generate_include_launch("franka_common_lfc.launch.py")
+    arm_id = LaunchConfiguration("arm_id")
 
     pd_plus_controller_params = PathJoinSubstitution(
         [
             FindPackageShare("agimus_demo_02_simple_pd_plus"),
             "config",
+            arm_id.perform(context),
             "pd_plus_controller_params.yaml",
         ]
     )

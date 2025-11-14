@@ -10,6 +10,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterFile
 
 from controller_manager.launch_utils import (
     generate_controllers_spawner_launch_description,  # noqa: I001
@@ -34,8 +35,8 @@ def launch_setup(
         package="controller_manager",
         executable="ros2_control_node",
         parameters=[
-            franka_controllers_params,
-            {"arm_id": arm_id, "load_gripper": "true"},
+            ParameterFile(franka_controllers_params, allow_substs=True),
+            {"arm_id": arm_id.perform(context), "load_gripper": "true"},
         ],
         remappings=[
             ("joint_states", "franka/joint_states"),
