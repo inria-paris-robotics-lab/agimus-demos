@@ -5,7 +5,7 @@ from launch.actions import (
     TimerAction,
     DeclareLaunchArgument,
 )
-from launch.event_handlers import OnProcessExit, OnProcessStart
+from launch.event_handlers import OnProcessExit, OnProcessStart, OnShutdown
 from launch.launch_description_entity import LaunchDescriptionEntity
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
@@ -17,10 +17,12 @@ from agimus_demos_common.launch_utils import (
     generate_default_franka_args,
     generate_include_launch,
     get_use_sim_time,
+    parse_config,
 )
 from agimus_demos_common.static_transform_publisher_node import (
     static_transform_publisher_node,
 )
+import os
 
 
 def launch_setup(
@@ -35,19 +37,25 @@ def launch_setup(
 
     arm_id_str=LaunchConfiguration("arm_id").perform(context)
 
-    agimus_controller_yaml = PathJoinSubstitution(
-        [
-            FindPackageShare("agimus_demo_03_mpc_dummy_traj"),
-            "config",
-            arm_id_str,
-            "agimus_controller_params.yaml",
-        ]
-    )
+
+    
+    # Parsing franka_controllers_params with arm_id replacement
+    replacements = {
+        'arm_id': arm_id_str,
+    }
+
+    agimus_controller_yaml = PathJoinSubstitution([FindPackageShare("agimus_demo_03_mpc_dummy_traj"),"config","agimus_controller_params.yaml",])
+    ocp_definition_yaml = PathJoinSubstitution([FindPackageShare("agimus_demo_03_mpc_dummy_traj"),"config","ocp_definition_file.yaml"])
+
+    ocp_definition_yaml_file = parse_config(path=ocp_definition_yaml.perform(context), replacements=replacements)
+    agimus_controller_yaml_file = parse_config(path=agimus_controller_yaml.perform(context), replacements=replacements)
+
+    print(f"Temporary mpc dummy file: ocp:{ocp_definition_yaml_file}, agimus controller:{agimus_controller_yaml_file}")
 
     if use_collision_detection:
         extra_params = {
             "ocp": {
-                "definition_yaml_file": "package://agimus_demo_03_mpc_dummy_traj/config/"+arm_id_str+"/ocp_definition_file.yaml"
+                "definition_yaml_file": ocp_definition_yaml_file
             }
         }
     else:
@@ -65,7 +73,7 @@ def launch_setup(
         executable="agimus_controller_node",
         parameters=[
             get_use_sim_time(),
-            agimus_controller_yaml,
+            agimus_controller_yaml_file,
             extra_params,
         ],
         output="screen",
@@ -76,15 +84,16 @@ def launch_setup(
         [
             FindPackageShare("agimus_demo_03_mpc_dummy_traj"),
             "config",
-            arm_id_str,
             "trajectory_weigths_params.yaml",
         ]
     )
 
+    trajectory_weights_yaml_file = parse_config(path=trajectory_weights_yaml.perform(context), replacements=replacements)
+
     simple_trajectory_publisher_node = Node(
         package="agimus_controller_ros",
         executable="simple_trajectory_publisher",
-        parameters=[get_use_sim_time(), trajectory_weights_yaml],
+        parameters=[get_use_sim_time(), trajectory_weights_yaml_file],
         arguments=[
             "-T",
             "4",
@@ -125,6 +134,16 @@ def launch_setup(
         child_frame_id="obstacle1",
     )
 
+    # Cleanup temporary file on shutdown
+    cleanup_action = RegisterEventHandler(
+        OnShutdown(
+            on_shutdown=lambda event, context: (
+                os.remove(ocp_definition_yaml_file),
+                os.remove(agimus_controller_yaml_file),
+                os.remove(trajectory_weights_yaml_file),
+            )
+        )
+    )
     return [
         franka_robot_launch,
         wait_for_non_zero_joints_node,
@@ -147,6 +166,7 @@ def launch_setup(
                 ),
             )
         ),
+        cleanup_action,
     ]
 
 
