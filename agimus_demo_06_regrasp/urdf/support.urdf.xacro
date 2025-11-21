@@ -5,7 +5,7 @@
       <inertial>
         <mass value="200" />
         <origin xyz="0 0 0.45" />
-        <inertia ixx="50" ixy="0" ixz="0" iyy="50" iyz="0" izz="50" />
+        <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
       </inertial>
       <visual>
         <origin xyz="0 0 0.38" />
@@ -246,7 +246,7 @@
       <origin xyz="1.05 0 0" />
       <parent link="support_link" />
       <child link="pedestal" />
-    </joint>
+    </joint>v 
     <joint name="foam_block_joint" type="fixed">
       <origin xyz="0.0 -0.08 0.75" />
       <parent link="support_link" />

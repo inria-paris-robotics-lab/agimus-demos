@@ -123,16 +123,18 @@ class Orchestrator(object):
     def __init__(self):
         self._node = Node("pick_and_place")
         self.param = OrchestratorParams()
-
         self.franka_gripper_cient = FrankaGripperClient(self._node)
         self.default_object_name = "obj_23"
         self.set_hardcoded_q0_start_and_above_source_bin()
         self.is_simulation = (
             self._node.get_parameter("use_sim_time").get_parameter_value().bool_value
         )
-        self._node.declare_parameter("vision_type", "apriltag_det")
+        self._node.declare_parameter("vision_type", "apriltag_det","arm_id")
         self.vision_type = (
             self._node.get_parameter("vision_type").get_parameter_value().string_value
+        )
+        self.arm_id = (
+            self._node.get_parameter("arm_id").get_parameter_value().string_value
         )
 
         self.object_to_grasp_name = None
@@ -350,9 +352,10 @@ class Orchestrator(object):
     ) -> None:
         """Publish an hpp trajectory to go to desired configuration"""
         self.hpp_client = HPPInterface(
-            object_name=self.default_object_name, use_spline_gradient_based_opt=False
+            object_name=self.default_object_name, use_spline_gradient_based_opt=False,
+            arm_id=self.arm_id
         )
-        current_robot_state = self.state_client.wait_for_future()
+        current_robot_state = s.arm_elf.state_client.wait_for_future()
         traj = self.hpp_client.plan_free_motion(
             list(current_robot_state.position), desired_configuration
         )
@@ -394,6 +397,7 @@ class Orchestrator(object):
         self.hpp_client = HPPInterface(
             object_name=object_name,
             use_spline_gradient_based_opt=False,
+            arm_id=self.arm_id,
         )
         self.publish_transform_in_tf(
             parent_frame=map_object_id(object_name),
@@ -478,6 +482,7 @@ class Orchestrator(object):
         self.hpp_client = HPPInterface(
             object_name="obj_26",
             use_spline_gradient_based_opt=False,
+            arm_id=self.arm_id,
         )
 
         paths = self.hpp_client.plan_calib_motion(
