@@ -1,9 +1,9 @@
 camera:
-  name: alpha
+  name: cam_1
   pose:
-    x: 0.131421
+    x: 1.82
     y: 0.0
-    z: 0.818875
+    z: 0.90
     roll:  0.0
-    pitch: 0.0  
-    yaw:   0.0
+    pitch: 0.7853
+    yaw:   3.14159
