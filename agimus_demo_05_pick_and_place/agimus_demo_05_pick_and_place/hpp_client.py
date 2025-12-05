@@ -71,6 +71,7 @@ class HPPInterface:
         object_name: str = "obj_01",
         robot_urdf_string: str = "",
         robot_srdf_string: str = "",
+        arm_id: str = "fer",
         start_obj_pose: XYZQuatType = [0.0, -0.2, 0.85, 0.0, 0.0, 0.0, 1.0],
         use_spline_gradient_based_opt: bool = True,
         gripper_open_value: float = 0.04,
@@ -93,7 +94,7 @@ class HPPInterface:
         self.default_object_bounds = [-1.0, 1.5, -1.0, 1.0, 0.0, 2.2]
         package_location = "package://agimus_demo_05_pick_and_place"
         urdf_string = (
-            process_xacro(package_location + "/urdf/demo.urdf.xacro")
+            process_xacro(package_location + "/urdf/demo.urdf.xacro", {"arm_id": arm_id})
             if robot_urdf_string == ""
             else robot_urdf_string
         )
