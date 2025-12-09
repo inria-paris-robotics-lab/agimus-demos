@@ -123,6 +123,7 @@ class Orchestrator(object):
     def __init__(self):
         self._node = Node("pick_and_place")
         self.param = OrchestratorParams()
+
         self.franka_gripper_cient = FrankaGripperClient(self._node)
         self.default_object_name = "obj_23"
         self.set_hardcoded_q0_start_and_above_source_bin()
@@ -352,8 +353,7 @@ class Orchestrator(object):
     ) -> None:
         """Publish an hpp trajectory to go to desired configuration"""
         self.hpp_client = HPPInterface(
-            object_name=self.default_object_name, use_spline_gradient_based_opt=False,
-            arm_id=self.arm_id
+            object_name=self.default_object_name, use_spline_gradient_based_opt=False, arm_id=self.arm_id
         )
         current_robot_state = self.state_client.wait_for_future()
         traj = self.hpp_client.plan_free_motion(
