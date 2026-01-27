@@ -548,7 +548,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "initial_joint_position",
-            default_value="'0.0 -0.78 0.0 -2.35 0.0 1.57 0.78 0.0'",
+            default_value="'-0.013749304790271453 0.07893415047603071 -0.007301320194572297 -2.1353199630356676 -0.009181208702269303 2.2759594471894893 -2.365718424780885 -9.85000042419415e-07 -9.85000042419415e-07'",
             description="Initial configuration of the robot used in Gazebo",
         ),
         DeclareLaunchArgument(
