@@ -69,8 +69,10 @@ class HPPInterface:
     def __init__(
         self,
         object_name: str = "obj_01",
+        dataset_name: str = "tless",
         robot_urdf_string: str = "",
         robot_srdf_string: str = "",
+        arm_id: str = "fer",
         start_obj_pose: XYZQuatType = [0.0, -0.2, 0.85, 0.0, 0.0, 0.0, 1.0],
         use_spline_gradient_based_opt: bool = True,
         gripper_open_value: float = 0.04,
@@ -79,6 +81,7 @@ class HPPInterface:
     ):
         hack_for_ros2_support_in_hpp()
 
+        self.arm_id = arm_id
         self.use_spline_gradient_based_opt = use_spline_gradient_based_opt
         self.start_obj_pose = start_obj_pose
         self._goal_obj_pose = None
@@ -90,12 +93,13 @@ class HPPInterface:
 
         self.default_obstacle_pose = source_bin_pose
         self.default_obstacle2_pose = destination_bin_pose
-        self.default_object_bounds = [-1.0, 1.5, -1.0, 1.0, 0.0, 2.2]
+        self.default_object_bounds = [-1.0, 1.5, -1.5, 1.0, 0.0, 2.2]
         package_location = "package://agimus_demo_05_pick_and_place"
         urdf_string = (
             process_xacro(
                 package_location + "/urdf/demo.urdf.xacro",
                 "use_camera:=true",
+                f"arm_id:={self.arm_id}",
             ).replace("file://", "")
             if robot_urdf_string == ""
             else robot_urdf_string
@@ -105,10 +109,10 @@ class HPPInterface:
 
         self.manip_object = BaseObject(
             urdf_path=retrieve_resource(
-                f"{package_location}/urdf/tless/{object_name}.urdf"
+                f"{package_location}/urdf/{dataset_name}/{object_name}.urdf"
             ),
             srdf_path=retrieve_resource(
-                f"{package_location}/srdf/tless/{object_name}.srdf"
+                f"{package_location}/srdf/{dataset_name}/{object_name}.srdf"
             ),
             name="part",
         )
@@ -176,7 +180,9 @@ class HPPInterface:
         self.robot = Robot("robot", "panda", rootJointType="anchor")
         # self.robot.opticalFrame = "camera_color_optical_frame"
         # TODO: get joint names automatically
-        shrinkJointRange(self.robot, [f"panda/fer_joint{i}" for i in range(1, 8)], 0.95)
+        shrinkJointRange(
+            self.robot, [f"panda/{self.arm_id}_joint{i}" for i in range(1, 8)], 0.95
+        )
 
     def set_problem(self):
         # Setup problem solver and parameters
@@ -190,7 +196,7 @@ class HPPInterface:
             # TODO Should we always use SimpleTimeParameterization?
             self.ps.addPathOptimizer("SimpleTimeParameterization")
         self.ps.setParameter("SimpleTimeParameterization/order", 2)
-        self.ps.setParameter("SimpleTimeParameterization/maxAcceleration", 0.7)
+        self.ps.setParameter("SimpleTimeParameterization/maxAcceleration", 0.5)
         self.ps.setParameter("SimpleTimeParameterization/safety", 0.95)
         self.ps.setParameter("BiRRT*/maxStepLength", 0.5 * float(np.sqrt(7)))
 
@@ -218,7 +224,9 @@ class HPPInterface:
         print("Part and box loaded")
         self.robot.client.manipulation.robot.insertRobotSRDFModel(
             "panda",
-            retrieve_resource("package://agimus_demo_05_pick_and_place/srdf/demo.srdf"),
+            retrieve_resource(
+                f"package://agimus_demo_05_pick_and_place/srdf/demo_{self.arm_id}.srdf"
+            ),
         )
         # Remove collisions between object and self collision geometries
         # TODO: get link names automatically
@@ -233,10 +241,14 @@ class HPPInterface:
 
         # Lock gripper in open position.
         self.ps.createLockedJoint(
-            "locked_finger_1", "panda/fer_finger_joint1", [self.gripper_open_value]
+            "locked_finger_1",
+            f"panda/{self.arm_id}_finger_joint1",
+            [self.gripper_open_value],
         )
         self.ps.createLockedJoint(
-            "locked_finger_2", "panda/fer_finger_joint2", [self.gripper_open_value]
+            "locked_finger_2",
+            f"panda/{self.arm_id}_finger_joint2",
+            [self.gripper_open_value],
         )
         self.ps.setConstantRightHandSide("locked_finger_1", True)
         self.ps.setConstantRightHandSide("locked_finger_2", True)
@@ -387,6 +399,9 @@ class HPPInterface:
                 + self.default_obstacle2_pose
             ),
         )
+        self.v = self.vf.createViewer()
+        self.v(self.q_init)
+        # input("Initialized the problem")
 
         res, q_init, err = self.binPicking.graph.applyNodeConstraints(
             "free", self.q_init
@@ -448,19 +463,34 @@ class HPPInterface:
         self,
         q_init: list[float],
         q_goal: list[float],
+        consider_object=True,
     ):
-        self.q_init = (
-            q_init
-            + self.start_obj_pose
-            + self.default_obstacle_pose
-            + self.default_obstacle2_pose
-        )
-        self.q_goal = (
-            q_goal
-            + self.start_obj_pose
-            + self.default_obstacle_pose
-            + self.default_obstacle2_pose
-        )
+        if consider_object:
+            self.q_init = (
+                q_init
+                + self.start_obj_pose
+                + self.default_obstacle_pose
+                + self.default_obstacle2_pose
+            )
+            self.q_goal = (
+                q_goal
+                + self.start_obj_pose
+                + self.default_obstacle_pose
+                + self.default_obstacle2_pose
+            )
+        else:  # dont consider the objects if they are seen somehow
+            self.q_init = (
+                q_init
+                + [1, 1, 1, 0, 0, 0, 1]
+                + [1, 1, 1, 0, 0, 0, 1]
+                + [1, 1, 1, 0, 0, 0, 1]
+            )
+            self.q_goal = (
+                q_goal
+                + [1, 1, 1, 0, 0, 0, 1]
+                + [1, 1, 1, 0, 0, 0, 1]
+                + [1, 1, 1, 0, 0, 0, 1]
+            )
 
         self._build_bin_picking(True, only_free_node=True, build_effector=False)
 

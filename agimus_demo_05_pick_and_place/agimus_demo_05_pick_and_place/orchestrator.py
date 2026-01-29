@@ -37,13 +37,14 @@ def map_object_id(obj_id, dataset="tless"):
 
 
 def get_most_confident_object_pose(
-    detection_msg: Detection2DArray, object_name: str
+    detection_msg: Detection2DArray, object_name: str, dataset_name: str
 ) -> Tuple[str, list[float]]:
     # TODO: change the map if we want to use YCBV
     filtered_detections = [
         (d, d.results[0].hypothesis.score)
         for d in detection_msg.detections
-        if d.results[0].hypothesis.class_id == map_object_id(object_name)
+        if d.results[0].hypothesis.class_id
+        == map_object_id(object_name, dataset=dataset_name)
     ]
     if len(filtered_detections) == 0:
         return ["", None]
@@ -84,28 +85,33 @@ def get_hardcoded_initial_object_pose(object_name: str) -> T.Tuple[str, list[flo
 
 def get_hardcoded_final_object_pose(object_name: str) -> list[float]:
     """Return desired object position in destination box frame."""
-    if object_name == "obj_21":
-        return "dest_box/base_link", [0.15, -0.0, 0.1, 0.0, 0.0, 0.0, 1.0]
-    if object_name == "obj_22":
-        return "dest_box/base_link", [-0.05, -0.0, 0.1, 0.0, 0.0, 0.0, 1.0]
-    elif object_name == "obj_23":
-        return "dest_box/base_link", [0.05, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0]
-    elif object_name == "obj_25":
-        return "dest_box/base_link", [0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0]
-    elif object_name == "obj_26":
-        return "dest_box/base_link", [-0.15, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0]
+    if object_name in ["obj_01", "obj_02"]:  # lamp base
+        return "dest_box/base_link", [0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 1.0]
+    elif object_name in [  # multisocket plugs
+        "obj_19",
+        "obj_20",
+        "obj_21",
+        "obj_22",
+        "obj_23",
+    ]:
+        return "dest_box/base_link", [0.4, -0.55, 0.075, 0.0, 0.0, 0.0, 1.0]
+        # return "dest_box/base_link", [0.1, 0.0, 0.03, 0.0, 0.0, 0.0, 1.0]
+    elif object_name in ["obj_25", "obj_26"]:  # switches
+        return "dest_box/base_link", [0.05, 0.0, 0.03, 0.0, 0.0, 0.0, 1.0]
+    elif object_name == "obj_03":
+        return "dest_box/base_link", [0.05, 0.0, 0.05, 0.0, 0.0, 0.0, 1.0]
     elif object_name == "obj_31":
-        return "dest_box/base_link", [0.0, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0]
+        return "dest_box/base_link", [0.05, 0.0, 0.05, 0.0, 0.0, 0.0, 1.0]
     else:
         raise ValueError(f"Object {object_name} not found")
 
 
-def get_in_fer_link0_M_support_link():
-    in_fer_link0_M_support_link = pin.SE3.Identity()
-    in_fer_link0_M_support_link.translation = np.array([0.563, -0.165, -0.780])
-    in_fer_link0_M_support_link.rotation[0, 0] = -1.0
-    in_fer_link0_M_support_link.rotation[1, 1] = -1.0
-    return in_fer_link0_M_support_link
+def get_in_arm_link0_M_support_link():
+    in_arm_link0_M_support_link = pin.SE3.Identity()
+    in_arm_link0_M_support_link.translation = np.array([0.563, -0.165, -0.780])
+    in_arm_link0_M_support_link.rotation[0, 0] = -1.0
+    in_arm_link0_M_support_link.rotation[1, 1] = -1.0
+    return in_arm_link0_M_support_link
 
 
 @dataclass
@@ -124,16 +130,29 @@ class Orchestrator(object):
         self._node = Node("pick_and_place")
         self.param = OrchestratorParams()
 
-        self.franka_gripper_cient = FrankaGripperClient(self._node)
+        self.source_bin_pose = [0.5, 0.3, 0.9, 0.0, 0.0, 0.0, 1.0]
+        self.destination_bin_pose = [-0.1, -0.1, 0.9, 0.0, 0.0, 0.0, 1.0]
+        self.min_opening_for_grasp = 0.01
+
         self.default_object_name = "obj_23"
         self.set_hardcoded_q0_start_and_above_source_bin()
         self.is_simulation = (
             self._node.get_parameter("use_sim_time").get_parameter_value().bool_value
         )
+        self._node.declare_parameter("dataset_name", "tless")
+        self.dataset_name = (
+            self._node.get_parameter("dataset_name").get_parameter_value().string_value
+        )
         self._node.declare_parameter("vision_type", "apriltag_det")
         self.vision_type = (
             self._node.get_parameter("vision_type").get_parameter_value().string_value
         )
+        self._node.declare_parameter("arm_id", "fer")
+        self.arm_id = (
+            self._node.get_parameter("arm_id").get_parameter_value().string_value
+        )
+
+        self.franka_gripper_cient = FrankaGripperClient(self._node, arm_id=self.arm_id)
 
         self.object_to_grasp_name = None
         self.start_obj_pose = None
@@ -141,6 +160,13 @@ class Orchestrator(object):
 
         self.trajectory_publisher = SimpleTrajectoryPublisher()
         self.dt = self.trajectory_publisher.dt
+
+        self.gripper_reader = AsyncSubscriber(
+            self._node,
+            JointState,
+            f"/{self.arm_id}_gripper/joint_states",
+            QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT),
+        )
 
         self.state_client = AsyncSubscriber(
             self._node,
@@ -176,17 +202,36 @@ class Orchestrator(object):
             self.trajectory_publisher, self.trajectory_publisher.future_init_done
         )
 
-        self.in_fer_link0_M_support_link = get_in_fer_link0_M_support_link()
+        self.in_arm_link0_M_support_link = get_in_arm_link0_M_support_link()
+
+    def set_source_bin_pose(self, pose):
+        self.source_bin_pose = pose
+
+    def set_destination_bin_pose(self, pose):
+        self.destination_bin_pose = pose
 
     def set_hardcoded_q0_start_and_above_source_bin(self):
+        # self.q0_start = [
+        #     -0.3619834760502907,
+        #     -1.3575006398318104,
+        #     0.969610481368033,
+        #     -2.6028532848927295,
+        #     0.2040785081450368,
+        #     1.9436352693107668,
+        #     0.6423896937386857,
+        #     0.0,
+        #     0.0,
+        # ]
+
+        # Prague config
         self.q0_start = [
-            -0.3619834760502907,
-            -1.3575006398318104,
-            0.969610481368033,
-            -2.6028532848927295,
-            0.2040785081450368,
-            1.9436352693107668,
-            0.6423896937386857,
+            -0.07989926975547221,
+            0.16054953411490003,
+            -0.4331556367121411,
+            -1.6853466114741846,
+            0.040477269951448534,
+            1.866718797171213,
+            0.3947644127864415,
             0.0,
             0.0,
         ]
@@ -254,7 +299,7 @@ class Orchestrator(object):
             if self.vision_type in ["simulate_happypose", "happypose"]:
                 object_detections = self.vision_client.wait_for_future()
                 obj_start_pose = get_most_confident_object_pose(
-                    object_detections, object_name
+                    object_detections, object_name, dataset_name=self.dataset_name
                 )
             elif self.vision_type in ["simulate_apriltag_det", "apriltag_det"]:
                 apriltag_detections: PoseStamped = self.vision_client.wait_for_future()
@@ -277,7 +322,7 @@ class Orchestrator(object):
         """Open the gripper."""
         self.franka_gripper_cient.send_goal(position=0.039, max_effort=10.0)
         # TODO: change it to something normal
-        time.sleep(0.05)
+        # time.sleep(0.05)
 
     def close_gripper(self):
         """Close the gripper."""
@@ -290,7 +335,7 @@ class Orchestrator(object):
         else:
             self.franka_gripper_cient.grasp()
             # TODO: change it to something normal
-            time.sleep(1.0)
+            # time.sleep(2.0)
 
     def add_trajectory_to_publish(
         self, path_vector, visual_servoing_time_range=None
@@ -301,12 +346,14 @@ class Orchestrator(object):
         )
         # TODO: get this from OCP params somehow
         horizon_size = 40
+        multiplier = 1
         # add complete horizon at the end of the trajectory of the last point
-        q_array += [q_array[-1]] * horizon_size  # OCP horizon
-        dq_array += [dq_array[-1]] * horizon_size  # OCP horizon
-        ddq_array += [ddq_array[-1]] * horizon_size  # OCP horizon
+        q_array += [q_array[-1]] * multiplier * horizon_size  # OCP horizon
+        dq_array += [dq_array[-1]] * multiplier * horizon_size  # OCP horizon
+        ddq_array += [ddq_array[-1]] * multiplier * horizon_size  # OCP horizon
 
         # find trajectory points idx range where to apply visual servoing
+        # The parameter is the trajectory name in trajectory_weights_params.yaml
         if visual_servoing_time_range is None:
             visual_servoing_idx_range = [0, 0]
         else:
@@ -314,7 +361,7 @@ class Orchestrator(object):
                 int(t / self.dt) for t in visual_servoing_time_range
             ]
             if visual_servoing_time_range[1] == path_vector.length():
-                visual_servoing_idx_range[1] += horizon_size
+                visual_servoing_idx_range[1] += multiplier * horizon_size
 
         # convert arrays in list of trajectory points
         trajectory = (
@@ -334,15 +381,15 @@ class Orchestrator(object):
             in_support_link_M_object = pin.XYZQUATToSE3(
                 self.hpp_client.start_obj_pose.copy()
             )
-            in_fer_link0_M_object = (
-                self.in_fer_link0_M_support_link * in_support_link_M_object
+            in_arm_link0_M_object = (
+                self.in_arm_link0_M_support_link * in_support_link_M_object
             )
-            print(f"starting visual servoing for the pose {in_fer_link0_M_object}...")
+            print(f"starting visual servoing for the pose {in_arm_link0_M_object}...")
 
             self.trajectory_publisher.add_visual_servoing_trajectory(
                 trajectory,
                 visual_servoing_idx_range,
-                pin.SE3ToXYZQUAT(in_fer_link0_M_object),
+                pin.SE3ToXYZQUAT(in_arm_link0_M_object),
             )
 
     def go_to(
@@ -352,16 +399,24 @@ class Orchestrator(object):
     ) -> None:
         """Publish an hpp trajectory to go to desired configuration"""
         self.hpp_client = HPPInterface(
-            object_name=self.default_object_name, use_spline_gradient_based_opt=False
+            object_name=self.default_object_name,
+            dataset_name=self.dataset_name,
+            use_spline_gradient_based_opt=False,
+            source_bin_pose=self.source_bin_pose,
+            destination_bin_pose=self.destination_bin_pose,
+            arm_id=self.arm_id,
         )
         current_robot_state = self.state_client.wait_for_future()
         traj = self.hpp_client.plan_free_motion(
-            list(current_robot_state.position), desired_configuration
+            list(current_robot_state.position),
+            desired_configuration,
+            consider_object=False,
         )
         if enable_visualization_in_gepetto_gui:
             self.v = self.hpp_client.vf.createViewer()
             self.v(self.hpp_client.q_init)
-            input("Trajectory computed. Ready to move. Press Enter to start motion...")
+            # input("Trajectory computed. Ready to move. Press Enter to start motion...")
+
         self.add_trajectory_to_publish(traj)
         rclpy.spin_until_future_complete(
             self.trajectory_publisher, self.trajectory_publisher.future_trajectory_done
@@ -390,53 +445,98 @@ class Orchestrator(object):
         enable_visualization_in_gepetto_gui: bool = True,
     ):
         """Plan with hpp a pick and place path and publish it."""
-        current_robot_state = self.state_client.wait_for_future()
-        q_init = list(current_robot_state.position)
+        # current_robot_state = self.state_client.wait_for_future()
+        # q_init = list(current_robot_state.position)
 
         self.hpp_client = HPPInterface(
             object_name=object_name,
+            dataset_name=self.dataset_name,
             use_spline_gradient_based_opt=False,
+            source_bin_pose=self.source_bin_pose,
+            destination_bin_pose=self.destination_bin_pose,
+            arm_id=self.arm_id,
         )
         self.publish_transform_in_tf(
-            parent_frame=map_object_id(object_name),
+            parent_frame=map_object_id(object_name, dataset=self.dataset_name),
             child_frame="current_object",
             transform=pin.SE3.Identity(),
             stamp=self._node.get_clock().now().to_msg(),
         )
 
         self.object_to_grasp_name = object_name
-        start_obj_pose, goal_obj_pose = self.get_object_start_and_goal_pose(
-            object_name, use_hardcoded_poses=use_hardcoded_poses
-        )
 
-        self.hpp_client.set_relative_start_obj_pose(
-            start_obj_pose[1], q_init, start_obj_pose[0]
-        )
-        self.hpp_client.set_goal_obj_pose(goal_obj_pose[0], goal_obj_pose[1][:3])
+        grasped = False
+        while not grasped:
+            current_robot_state = self.state_client.wait_for_future()
+            q_init = list(current_robot_state.position)
+            start_obj_pose, goal_obj_pose = self.get_object_start_and_goal_pose(
+                object_name, use_hardcoded_poses=use_hardcoded_poses
+            )
 
-        grasp_path, placing_path, freefly_path = self.hpp_client.plan_pick_and_place(
-            q_init=list(current_robot_state.position),
-            q_above_source_bin=self.q_above_source_bin,
-        )
+            self.hpp_client.set_relative_start_obj_pose(
+                start_obj_pose[1], q_init, start_obj_pose[0]
+            )
+            self.hpp_client.set_goal_obj_pose(goal_obj_pose[0], goal_obj_pose[1][:3])
+            grasp_path, placing_path, freefly_path = (
+                self.hpp_client.plan_pick_and_place(
+                    q_init=list(current_robot_state.position),
+                    # q_above_source_bin=self.q_above_source_bin,
+                )
+            )
 
-        if enable_visualization_in_gepetto_gui:
-            self.v = self.hpp_client.vf.createViewer()
-            self.v(self.hpp_client.q_init)
-            input("Trajectory computed. Ready to move. Press Enter to start motion...")
+            if enable_visualization_in_gepetto_gui:
+                # self.v = self.hpp_client.vf.createViewer()
+                self.hpp_client.v(self.hpp_client.q_init)
+                # input("Trajectory computed. Ready to move. Press Enter to start motion...")
 
-        self.open_gripper()
-        self.open_gripper()
-        time_pre_grasp = grasp_path.pathAtRank(grasp_path.numberPaths() - 1).length()
-        self.add_trajectory_to_publish(
-            grasp_path,
-            visual_servoing_time_range=[
-                grasp_path.length() - time_pre_grasp,
-                grasp_path.length(),
-            ],
-        )
-        rclpy.spin_until_future_complete(
-            self.trajectory_publisher, self.trajectory_publisher.future_trajectory_done
-        )
+            self.open_gripper()
+            self.open_gripper()
+            time_pre_grasp = grasp_path.pathAtRank(
+                grasp_path.numberPaths() - 1
+            ).length()
+
+            if (
+                self.trajectory_publisher.params.visual_servoing_enabled
+            ):  # with visual servoing setup in config file
+                print("visual servoing enabled")
+                self.add_trajectory_to_publish(
+                    grasp_path,
+                    visual_servoing_time_range=[
+                        grasp_path.length() - time_pre_grasp,
+                        grasp_path.length(),
+                    ],
+                )
+            else:  # no visual servoing
+                print("visual servoing disabled")
+                self.add_trajectory_to_publish(
+                    grasp_path,
+                )
+            rclpy.spin_until_future_complete(
+                self.trajectory_publisher,
+                self.trajectory_publisher.future_trajectory_done,
+            )
+            self.close_gripper()
+            # time.sleep(0.5)
+
+            # check if gripper is holding anything ()
+            gripper_state = self.gripper_reader.wait_for_future()
+            # Since both go 0 → 0.04, total opening is their sum
+            opening = gripper_state.position[0] + gripper_state.position[1]
+            if opening < self.min_opening_for_grasp:
+                print("Failure to GRASP")
+                # retry
+                self.go_to(self.q0_start)  # TODO: infer this automatically
+                rclpy.spin_until_future_complete(
+                    self.trajectory_publisher,
+                    self.trajectory_publisher.future_trajectory_done,
+                )
+                # time.sleep(2.)
+            else:
+                print(
+                    f"GRASPED, {opening}: {gripper_state.position[0]}. {gripper_state.position[1]}"
+                )
+                grasped = True
+
         if self.vision_type in ["simulate_apriltag_det", "apriltag_det"]:
             apriltag_detections: PoseStamped = self.vision_client.wait_for_future()
 
@@ -449,7 +549,7 @@ class Orchestrator(object):
 
         if placing_path is not None:
             # TODO: check automatically
-            self.close_gripper()
+
             time_pre_grasp = placing_path.pathAtRank(0).length()
             self.add_trajectory_to_publish(placing_path)
             rclpy.spin_until_future_complete(
@@ -480,6 +580,7 @@ class Orchestrator(object):
         self.hpp_client = HPPInterface(
             object_name="obj_26",
             use_spline_gradient_based_opt=False,
+            arm_id=self.arm_id,
         )
 
         paths = self.hpp_client.plan_calib_motion(

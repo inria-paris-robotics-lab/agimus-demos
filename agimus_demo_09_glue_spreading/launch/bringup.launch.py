@@ -1,5 +1,5 @@
 from launch import LaunchContext, LaunchDescription
-from launch.actions import OpaqueFunction, RegisterEventHandler, TimerAction
+from launch.actions import OpaqueFunction, RegisterEventHandler, TimerAction, DeclareLaunchArgument
 from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.launch_description_entity import LaunchDescriptionEntity
 from launch.substitutions import PathJoinSubstitution
@@ -26,13 +26,13 @@ def launch_setup(
         [
             FindPackageShare("agimus_demo_09_glue_spreading"),
             "rviz",
-            "config_mpc_traj.rviz",
+            "config.rviz",
         ]
     )
 
     franka_robot_launch = generate_include_launch(
         "franka_common_lfc.launch.py",
-        extra_launch_arguments={"rviz_config_path": rviz_config_path},
+        extra_launch_arguments={"rviz_config_path": rviz_config_path,"arm_id": arm_id_str,"use_camera":"false", "initial_joint_position":"'-0.013754730661780176 0.08055123973596531 -0.0073070470163592634 -2.1355798783235875 -0.00918790986315326 2.2759845504437037 -2.3657036209762725 0. '"},
     )
 
     wait_for_non_zero_joints_node = Node(
@@ -115,6 +115,12 @@ def launch_setup(
         frame_id=arm_id_str+"_link0",
         child_frame_id="robot_attachment_link",
     )
+
+    # link simulation and real base links
+    tf_world_base = static_transform_publisher_node(
+        frame_id="world",
+        child_frame_id="base",
+    )
     # tf_node_plate = static_transform_publisher_node(
     #     frame_id="plate_base_link_happypose",
     #     child_frame_id="pannel_base_link",
@@ -123,7 +129,7 @@ def launch_setup(
     # )
 
     tf_node_plate_mpc = static_transform_publisher_node(
-    frame_id="fer_link0",
+    frame_id=arm_id_str+"_link0",
     child_frame_id="pannel_base_link",
     xyz=["0.6", "0", "0.0"],
     rot_xyzw= ["0", "0", "0", "1"],
@@ -151,7 +157,8 @@ def launch_setup(
         plate_publisher_node,
         tf_node,
         tf_node_plate_mpc,
-        # mpc_node,
+        tf_world_base,
+        mpc_node,
 
         # wait_for_non_zero_joints_node,
         # RegisterEventHandler(
